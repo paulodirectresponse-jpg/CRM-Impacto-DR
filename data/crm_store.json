@@ -1,0 +1,79 @@
+{
+  "leads": [],
+  "audiences": [],
+  "scripts": [],
+  "dailyGoals": [],
+  "lossReasons": [
+    {
+      "id": "loss_nao_respondeu",
+      "name": "Não respondeu",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_sem_interesse",
+      "name": "Sem interesse",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_ja_tem_editor",
+      "name": "Já possui editor",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_sem_orcamento",
+      "name": "Sem orçamento",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_nao_gostou_teste",
+      "name": "Não gostou do teste",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_parou_responder",
+      "name": "Parou de responder",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_contato_futuro",
+      "name": "Pediu contato futuramente",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_nao_perfil",
+      "name": "Não é perfil ideal",
+      "isOther": false,
+      "isActive": true
+    },
+    {
+      "id": "loss_outro",
+      "name": "Outro",
+      "isOther": true,
+      "isActive": true
+    }
+  ],
+  "appSettings": {
+    "aiEnabled": true,
+    "geminiModel": "gemini-2.5-flash",
+    "authorizedEmails": [
+      "ferramentaas.1@gmail.com",
+      "paulo.direct.response@gmail.com"
+    ],
+    "defaultDailyTarget": 0,
+    "dailyActiveGoal": 0,
+    "audienceTargets": {},
+    "minSampleForAiAnalysis": 5,
+    "adSpendTotal": 0,
+    "averageContractValue": 0
+  },
+  "activities": [],
+  "scheduleItems": [],
+  "monthlyPlans": {}
+}

@@ -1,0 +1,142 @@
+{
+  "entities": {
+    "Lead": {
+      "title": "Lead",
+      "description": "Lead profile and sales lifecycle state in the prospecting CRM",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "source": { "type": "string", "enum": ["active", "paid"] },
+        "instagramUrl": { "type": "string" },
+        "instagramUsernameNormalized": { "type": "string" },
+        "temporaryLabel": { "type": "string" },
+        "audienceId": { "type": "string" },
+        "manualClass": { "type": "string", "enum": ["A", "B", "C"] },
+        "aiClass": { "type": "string", "enum": ["A", "B", "C"] },
+        "aiAnalysis": { "type": "string" },
+        "status": { "type": "string" },
+        "testStatus": { "type": "string" },
+        "scriptVersionId": { "type": "string" },
+        "notes": { "type": "string" },
+        "lossReasonId": { "type": "string" },
+        "lossReasonOtherText": { "type": "string" },
+        "paidCampaign": { "type": "string" },
+        "adCreative": { "type": "string" },
+        "adCost": { "type": "number" },
+        "customerData": { "type": "object" },
+        "stageDates": { "type": "object" },
+        "testDates": { "type": "object" },
+        "firstContactSnapshot": { "type": "object" },
+        "version": { "type": "number" },
+        "isArchived": { "type": "boolean" },
+        "duplicateOverride": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "source", "status", "testStatus", "version", "isArchived", "createdAt", "updatedAt"]
+    },
+    "Audience": {
+      "title": "Audience",
+      "description": "Niche target definition with classification criteria",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "criteriaA": { "type": "string" },
+        "criteriaB": { "type": "string" },
+        "criteriaC": { "type": "string" },
+        "aiInstructions": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "isActive", "createdAt", "updatedAt"]
+    },
+    "Script": {
+      "title": "Script",
+      "description": "Outreach copy version linked to an audience",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "baseName": { "type": "string" },
+        "audienceId": { "type": "string" },
+        "version": { "type": "number" },
+        "content": { "type": "string" },
+        "isLocked": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "creationMode": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "baseName", "audienceId", "version", "content", "isActive", "createdAt", "updatedAt"]
+    },
+    "LossReason": {
+      "title": "LossReason",
+      "description": "Configurable loss reason item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "isOther": { "type": "boolean" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "name", "isActive"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Global CRM application configuration and authorization settings",
+      "type": "object",
+      "properties": {
+        "aiEnabled": { "type": "boolean" },
+        "geminiModel": { "type": "string" },
+        "authorizedEmails": { "type": "array" },
+        "defaultDailyTarget": { "type": "number" },
+        "dailyActiveGoal": { "type": "number" },
+        "audienceTargets": { "type": "object" },
+        "minSampleForAiAnalysis": { "type": "number" }
+      }
+    },
+    "MonthlyPlan": {
+      "title": "MonthlyPlan",
+      "description": "Monthly prospecting strategy, target breakdown and team distribution",
+      "type": "object",
+      "properties": {
+        "monthKey": { "type": "string" },
+        "monthlyTarget": { "type": "number" },
+        "dailyTarget": { "type": "number" },
+        "workingDays": { "type": "number" },
+        "audienceBreakdown": { "type": "object" },
+        "teamDistribution": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["monthKey", "monthlyTarget", "dailyTarget"]
+    }
+  },
+  "firestore": {
+    "/leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Prospecting and paid leads"
+    },
+    "/audiences/{audienceId}": {
+      "schema": "Audience",
+      "description": "Audiences / target niches"
+    },
+    "/scripts/{scriptId}": {
+      "schema": "Script",
+      "description": "Prospecting script templates and versions"
+    },
+    "/lossReasons/{lossReasonId}": {
+      "schema": "LossReason",
+      "description": "Reasons for lead loss"
+    },
+    "/appSettings/global": {
+      "schema": "AppSettings",
+      "description": "Global application configuration"
+    },
+    "/monthlyPlans/{monthKey}": {
+      "schema": "MonthlyPlan",
+      "description": "Monthly planning and quota breakdowns"
+    }
+  }
+}

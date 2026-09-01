@@ -1,0 +1,81 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Leads collection
+    match /leads/{leadId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(leadId);
+      allow delete: if isSignedIn() && isValidId(leadId);
+    }
+
+    // Audiences collection
+    match /audiences/{audienceId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(audienceId);
+      allow delete: if isSignedIn() && isValidId(audienceId);
+    }
+
+    // Scripts collection
+    match /scripts/{scriptId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(scriptId);
+      allow delete: if isSignedIn() && isValidId(scriptId);
+    }
+
+    // Loss reasons collection
+    match /lossReasons/{lossReasonId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(lossReasonId);
+      allow delete: if isSignedIn() && isValidId(lossReasonId);
+    }
+
+    // App settings
+    match /appSettings/{settingId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Daily goals
+    match /dailyGoals/{goalId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Monthly plans
+    match /monthlyPlans/{monthKey} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+
+    // Activities
+    match /activities/{activityId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(activityId);
+      allow delete: if isSignedIn() && isValidId(activityId);
+    }
+
+    // Schedule items
+    match /scheduleItems/{itemId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(itemId);
+      allow delete: if isSignedIn() && isValidId(itemId);
+    }
+  }
+}
