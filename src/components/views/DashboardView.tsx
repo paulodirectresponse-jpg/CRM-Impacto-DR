@@ -23,7 +23,15 @@ import { useCrm } from "../../context/CrmContext";
 import { api } from "../../services/api";
 
 export const DashboardView: React.FC = () => {
-  const { metrics, refreshMetrics, setActiveTab, openLeadDetails, setIsNewLeadModalOpen, leads } = useCrm();
+  const {
+    metrics,
+    refreshMetrics,
+    setActiveTab,
+    openLeadDetails,
+    setIsNewLeadModalOpen,
+    startProspecting,
+    leads,
+  } = useCrm();
 
   const [periodType, setPeriodType] = useState<string>("thisMonth");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
@@ -48,7 +56,7 @@ export const DashboardView: React.FC = () => {
   }
 
   const { volumes, cohort, activeGoalToday } = metrics;
-  const goalTarget = activeGoalToday?.target || 30;
+  const goalTarget = activeGoalToday?.target ?? 0;
   const goalAchieved = activeGoalToday?.achieved || 0;
   const goalPercentage = activeGoalToday?.percentage || 0;
   const goalRemaining = Math.max(0, goalTarget - goalAchieved);
@@ -126,23 +134,32 @@ export const DashboardView: React.FC = () => {
           </div>
 
           {/* Right: Quick Action Controls */}
-          <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-3 border-t lg:border-t-0 border-amber-200/60 pt-3 lg:pt-0">
+          <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-2.5 border-t lg:border-t-0 border-amber-200/60 pt-3 lg:pt-0">
+            <button
+              id="btn-goal-prospect-now"
+              onClick={startProspecting}
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 text-xs sm:text-sm font-extrabold px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Zap className="w-4 h-4 fill-slate-950" />
+              <span>⚡ Prospectar Agora</span>
+            </button>
+
             <button
               id="btn-goal-add-lead"
               onClick={() => setIsNewLeadModalOpen(true)}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow-xs transition-all cursor-pointer"
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-xs transition-all cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              <span>+ Novo Lead & Contato</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Novo Lead</span>
             </button>
 
             <button
               id="btn-goal-settings"
               onClick={() => setActiveTab("agenda")}
-              className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 bg-white/80 hover:bg-white border border-slate-200 px-3 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
             >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Ver Agenda & Metas por Nicho</span>
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Ver Agenda & Metas</span>
             </button>
           </div>
         </div>

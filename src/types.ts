@@ -5,9 +5,11 @@
 
 export type AcquisitionSource = "active" | "paid";
 
-export type OperationalClass = "A" | "B" | "C" | "PENDENTE";
+export type DiscoverySource = "manual" | "apify";
 
-export type SuggestedClass = "A" | "B" | "C" | "PENDENTE" | "INCONCLUSIVE";
+export type OperationalClass = "A" | "B" | "C" | "PENDENTE" | "RECUSADO";
+
+export type SuggestedClass = "A" | "B" | "C" | "PENDENTE" | "RECUSADO" | "INCONCLUSIVE";
 
 export type FunnelStatus =
   | "novo"
@@ -59,9 +61,14 @@ export interface TestDates {
 export interface FirstContactSnapshot {
   classAtFirstContact: OperationalClass;
   audienceIdAtFirstContact: string;
+  audienceNameAtFirstContact?: string;
   scriptVersionIdAtFirstContact: string;
+  scriptNameAtFirstContact?: string;
+  scriptVersionAtFirstContact?: number;
+  scriptContentAtFirstContact?: string;
   sourceAtFirstContact: AcquisitionSource;
   firstContactAt: string;
+  performedBy?: string;
 }
 
 export interface AiEvaluation {
@@ -110,9 +117,19 @@ export interface CustomerData {
   closedDate?: string;
 }
 
+export interface LeadProfileData {
+  fullName?: string;
+  followerCount?: number;
+  biography?: string;
+  publicEmail?: string;
+  publicPhone?: string;
+  isPrivate?: boolean;
+}
+
 export interface Lead {
   id: string;
   source: AcquisitionSource;
+  discoverySource?: DiscoverySource;
   instagramUrl?: string;
   instagramUsernameNormalized?: string;
   temporaryLabel?: string;
@@ -128,6 +145,12 @@ export interface Lead {
   lossReasonId?: string;
   lossReasonOther?: string;
   customerData?: CustomerData;
+  profileData?: LeadProfileData;
+  importBatchId?: string;
+  importConfigId?: string;
+  importedAt?: string;
+  importQuery?: string;
+  apifyExternalId?: string;
   sistema360Offered?: boolean;
   sistema360Status?: Sistema360Status;
   system360TransferredAt?: string | null;
@@ -135,6 +158,9 @@ export interface Lead {
   updatedAt: string;
   version: number;
   isArchived: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
   duplicateOverride?: boolean;
   stageDates: StageDates;
   testDates: TestDates;
@@ -147,6 +173,9 @@ export interface Audience {
   name: string;
   description: string;
   isActive: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   criteriaA: string;
   criteriaB: string;
   criteriaC: string;
@@ -162,11 +191,121 @@ export interface Script {
   version: number;
   content: string;
   isActive: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   isLocked: boolean; // Locked automatically once used in a first contact
+  parentId?: string;
   creationMode?: "prompt" | "free";
   promptUsed?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+// --- APIFY & IMPORT SYSTEM TYPES (V2.1) ---
+
+export type IntegrationStatusType = "connected" | "not_configured" | "error";
+
+export interface ApifyIntegrationStatus {
+  configured: boolean;
+  status: IntegrationStatusType;
+  maskedToken?: string;
+  accountId?: string;
+  accountUsername?: string;
+  lastTestAt?: string;
+  errorMessage?: string;
+}
+
+export interface ImportConfig {
+  id: string;
+  name: string;
+  audienceId: string;
+  keywords: string[];
+  searchLimitPerKeyword: number;
+  minFollowers?: number;
+  maxFollowers?: number;
+  ignorePrivate?: boolean;
+  liveSearch?: boolean;
+  isActive: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+}
+
+export type AiStrategyMode = "quality" | "balanced" | "volume";
+
+export interface AiImportStrategyPayload {
+  audienceId: string;
+  location?: string;
+  mode: AiStrategyMode;
+}
+
+export interface AiImportStrategyResult {
+  keywords: string[];
+  searchLimitPerKeyword: number;
+  minFollowers?: number;
+  maxFollowers?: number;
+  ignorePrivate: boolean;
+  targetAudienceRationale?: string;
+  source: "ai" | "fallback";
+  // Optional backward-compatibility fields (deprecated)
+  suggestedKeywords?: string[];
+  suggestedSearchLimit?: number;
+  suggestedMinFollowers?: number;
+  suggestedMaxFollowers?: number | null;
+  suggestedIgnorePrivate?: boolean;
+  rationale?: string;
+  reasoning?: {
+    summary: string;
+    keywordStrategy: string;
+    followerStrategy: string;
+  };
+  assumptions?: string[];
+}
+
+export interface TrashItems {
+  leads: Lead[];
+  scripts: Script[];
+  audiences: Audience[];
+  importConfigs: ImportConfig[];
+  configs?: ImportConfig[];
+}
+
+export type ImportBatchStatus =
+  | "queued"
+  | "running"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface ImportBatch {
+  id: string;
+  configId?: string;
+  configSnapshot: Partial<ImportConfig>;
+  audienceId: string;
+  audienceName?: string;
+  keywords: string[];
+  requestedCount: number;
+  status: ImportBatchStatus;
+  apifyRunId?: string;
+  apifyDatasetId?: string;
+  receivedCount: number;
+  importedCount: number;
+  duplicateCount: number;
+  filteredCount: number;
+  errorCount: number;
+  costUsd?: number | null;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  createdBy: string;
+  errorCode?: string;
+  errorMessage?: string;
+  notes?: string;
 }
 
 export interface DailyGoal {
@@ -220,10 +359,12 @@ export interface Activity {
   type: ActivityType;
   title: string;
   description: string;
+  details?: string;
   before?: any;
   after?: any;
   performedBy: string;
   timestamp: string;
+  createdAt?: string;
 }
 
 export interface UserSession {
@@ -352,16 +493,17 @@ export interface ProspectingScheduleItem {
 
 export interface MonthlyProspectingPlan {
   month: string; // YYYY-MM
-  targetMonthlyLeads: number; // Quantidade total de leads para prospectar no mês
+  targetMonthlyContacts?: number; // Meta principal de primeiros contatos no mês
+  targetMonthlyLeads?: number; // Compatibilidade legada
   activeWeekdays: number[]; // [1,2,3,4,5] = Segunda a Sexta
   customActiveDates?: string[]; // Datas YYYY-MM-DD ativadas
   customRestDates?: string[]; // Datas YYYY-MM-DD de folga
-  calculatedDailyTarget: number; // Leads por dia de prospecção
+  calculatedDailyTarget: number; // Primeiros contatos por dia útil de prospecção
   dailyNotes?: Record<string, string>; // Notas por data
   dailyCompletions?: Record<string, boolean>; // Conclusão manual do dia
   
   // Specific niche/audience target allocations:
-  targetsByAudience?: Record<string, number>; // Meta diária por nicho/público (leads/dia)
+  targetsByAudience?: Record<string, number>; // Meta diária por nicho/público (contatos/dia)
   monthlyTargetsByAudience?: Record<string, number>; // Meta mensal por nicho/público
   
   // Team member allocations & tracking:
@@ -387,4 +529,19 @@ export interface MonthlyProspectingPlan {
   notes?: string;
   updatedAt?: string;
 }
+
+// --- PROSPECT NOW (PROSPECTAR AGORA) TYPES ---
+export interface ProspectLeadFilters {
+  audienceId?: string;
+  classes?: OperationalClass[];
+  discoverySource?: "all" | "apify" | "manual";
+  importBatchId?: string;
+  excludeIds?: string[];
+}
+
+export interface ProspectNextLeadResponse {
+  lead: Lead | null;
+  remainingCount: number;
+}
+
 

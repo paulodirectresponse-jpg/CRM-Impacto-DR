@@ -19,6 +19,7 @@ import {
   Tag,
   DollarSign,
   Layers,
+  Trash2,
 } from "lucide-react";
 import {
   Lead,
@@ -32,6 +33,7 @@ import {
 import { useCrm } from "../../context/CrmContext";
 import { api } from "../../services/api";
 import { formatSaoPauloDateTime } from "../../utils/dateUtils";
+import { ConfirmDeleteModal } from "../common/ConfirmDeleteModal";
 
 export const LeadDetailDrawer: React.FC = () => {
   const {
@@ -44,6 +46,7 @@ export const LeadDetailDrawer: React.FC = () => {
     lossReasons,
     refreshAll,
     addToast,
+    removeLeadFromState,
   } = useCrm();
 
   const [lead, setLead] = useState<Lead | null>(null);
@@ -71,6 +74,10 @@ export const LeadDetailDrawer: React.FC = () => {
 
   // Concurrency conflict modal
   const [concurrencyConflict, setConcurrencyConflict] = useState<string | null>(null);
+
+  // Delete modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const loadLeadDetails = async (id: string) => {
     setLoading(true);
@@ -207,7 +214,11 @@ export const LeadDetailDrawer: React.FC = () => {
       await loadLeadDetails(lead.id);
       addToast({ type: "success", title: "Nota adicionada com sucesso" });
     } catch (err: any) {
-      addToast({ type: "error", title: "Erro ao salvar nota", message: err.message });
+      if (err.status === 409 || err.code === "LEAD_VERSION_CONFLICT") {
+        setConcurrencyConflict("Este lead foi modificado simultaneamente em outra sessão. Recarregue os dados antes de salvar a nota.");
+      } else {
+        addToast({ type: "error", title: "Erro ao salvar nota", message: err.message });
+      }
     } finally {
       setIsSavingNote(false);
     }
@@ -230,7 +241,11 @@ export const LeadDetailDrawer: React.FC = () => {
       await loadLeadDetails(lead.id);
       addToast({ type: "success", title: "Dados do cliente salvos com sucesso!" });
     } catch (err: any) {
-      addToast({ type: "error", title: "Erro ao salvar dados do cliente", message: err.message });
+      if (err.status === 409 || err.code === "LEAD_VERSION_CONFLICT") {
+        setConcurrencyConflict("Este lead foi modificado simultaneamente. Recarregue para obter os dados mais recentes.");
+      } else {
+        addToast({ type: "error", title: "Erro ao salvar dados do cliente", message: err.message });
+      }
     } finally {
       setIsSavingCustomerData(false);
     }
@@ -251,7 +266,11 @@ export const LeadDetailDrawer: React.FC = () => {
       });
       await refreshAll();
     } catch (err: any) {
-      addToast({ type: "error", title: "Erro ao atualizar classe", message: err.message });
+      if (err.status === 409 || err.code === "LEAD_VERSION_CONFLICT") {
+        setConcurrencyConflict("Este lead foi modificado em outra janela. Recarregue os dados antes de atualizar a classe.");
+      } else {
+        addToast({ type: "error", title: "Erro ao atualizar classe", message: err.message });
+      }
     }
   };
 
@@ -271,6 +290,32 @@ export const LeadDetailDrawer: React.FC = () => {
       await refreshAll();
     } catch (err: any) {
       addToast({ type: "error", title: "Erro ao arquivar", message: err.message });
+    }
+  };
+
+  const handleDeleteLeadClick = () => {
+    if (!lead) return;
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDeleteLead = async () => {
+    if (!lead) return;
+    setIsDeleting(true);
+    try {
+      const res = await api.deleteLead(lead.id);
+      removeLeadFromState(lead.id);
+      addToast({
+        type: "success",
+        title: "Lead Excluído",
+        message: res.message || "Lead movido para a lixeira com sucesso.",
+      });
+      setShowDeleteModal(false);
+      setIsDetailDrawerOpen(false);
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao excluir lead", message: err.message });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -342,6 +387,15 @@ export const LeadDetailDrawer: React.FC = () => {
               <span>{lead.isArchived ? "Desarquivar" : "Arquivar"}</span>
             </button>
             <button
+              id="btn-delete-lead"
+              onClick={handleDeleteLeadClick}
+              className="text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Excluir Lead"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Excluir</span>
+            </button>
+            <button
               id="btn-close-drawer"
               onClick={() => setIsDetailDrawerOpen(false)}
               className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200 transition-colors"
@@ -382,12 +436,12 @@ export const LeadDetailDrawer: React.FC = () => {
                 Atual: <strong className="text-slate-800">{lead.manualClass === "PENDENTE" ? "Pendente (Não classificado)" : `Classe ${lead.manualClass}`}</strong>
               </span>
             </div>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-1.5">
               <button
                 type="button"
                 id="drawer-class-pendente"
                 onClick={() => handleUpdateClass("PENDENTE")}
-                className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-all cursor-pointer text-center ${
+                className={`py-1.5 px-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer text-center ${
                   lead.manualClass === "PENDENTE"
                     ? "bg-slate-800 text-white border-slate-900 font-bold shadow-xs"
                     : "bg-white border-slate-200 text-slate-600 hover:bg-slate-100"
@@ -401,7 +455,7 @@ export const LeadDetailDrawer: React.FC = () => {
                   type="button"
                   id={`drawer-class-${cls}`}
                   onClick={() => handleUpdateClass(cls)}
-                  className={`py-1.5 px-2 rounded-lg border text-xs font-medium transition-all cursor-pointer text-center ${
+                  className={`py-1.5 px-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer text-center ${
                     lead.manualClass === cls
                       ? cls === "A"
                         ? "bg-emerald-600 text-white border-emerald-700 font-bold shadow-xs"
@@ -414,8 +468,81 @@ export const LeadDetailDrawer: React.FC = () => {
                   Classe {cls}
                 </button>
               ))}
+              <button
+                type="button"
+                id="drawer-class-recusado"
+                onClick={() => handleUpdateClass("RECUSADO")}
+                className={`py-1.5 px-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer text-center ${
+                  lead.manualClass === "RECUSADO"
+                    ? "bg-rose-700 text-white border-rose-800 font-bold shadow-xs"
+                    : "bg-white border-slate-200 text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                Recusado
+              </button>
             </div>
           </div>
+
+          {/* Apify Profile & Scraper Data Card */}
+          {(lead.discoverySource === "apify" || lead.profileData) && (
+            <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Instagram className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-bold text-indigo-950 uppercase tracking-wider">
+                    Dados Extraídos (Apify Scraper)
+                  </span>
+                </div>
+                {lead.importedAt && (
+                  <span className="text-[10px] bg-indigo-100 text-indigo-800 font-semibold px-2 py-0.5 rounded">
+                    Importado em {formatSaoPauloDateTime(lead.importedAt)}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                {lead.profileData?.followerCount !== undefined && (
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100">
+                    <span className="text-slate-400 block text-[10px] font-medium">Seguidores</span>
+                    <span className="font-bold text-slate-900 text-sm">
+                      {lead.profileData.followerCount.toLocaleString("pt-BR")}
+                    </span>
+                  </div>
+                )}
+                {lead.profileData?.publicEmail && (
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100">
+                    <span className="text-slate-400 block text-[10px] font-medium">E-mail Público</span>
+                    <span className="font-semibold text-slate-800 truncate block text-xs" title={lead.profileData.publicEmail}>
+                      {lead.profileData.publicEmail}
+                    </span>
+                  </div>
+                )}
+                {lead.profileData?.publicPhone && (
+                  <div className="bg-white p-2.5 rounded-lg border border-indigo-100">
+                    <span className="text-slate-400 block text-[10px] font-medium">Telefone</span>
+                    <span className="font-semibold text-slate-800 text-xs">
+                      {lead.profileData.publicPhone}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {lead.profileData?.biography && (
+                <div className="bg-white p-3 rounded-lg border border-indigo-100 text-xs">
+                  <span className="text-slate-400 block text-[10px] font-medium mb-1">Biografia</span>
+                  <p className="text-slate-700 whitespace-pre-wrap leading-relaxed">
+                    {lead.profileData.biography}
+                  </p>
+                </div>
+              )}
+
+              {lead.importQuery && (
+                <p className="text-[11px] text-slate-500">
+                  Palavras-chave de busca: <strong className="text-slate-700">{lead.importQuery}</strong>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* 1. Funnel Pipeline Stage Stepper */}
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -765,7 +892,7 @@ export const LeadDetailDrawer: React.FC = () => {
                     <div className="flex items-center justify-between">
                       <span className="font-semibold text-slate-800">{act.description}</span>
                       <span className="text-[10px] text-slate-400">
-                        {formatSaoPauloDateTime(act.createdAt)}
+                        {formatSaoPauloDateTime(act.createdAt || act.timestamp)}
                       </span>
                     </div>
                     {act.details && (
@@ -902,6 +1029,27 @@ export const LeadDetailDrawer: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Confirm Delete Lead Modal */}
+        <ConfirmDeleteModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={handleConfirmDeleteLead}
+          isLoading={isDeleting}
+          title="Excluir Lead"
+          description={
+            <span>
+              Tem certeza que deseja mover o lead{" "}
+              <strong className="text-slate-900 font-semibold">
+                {lead ? (lead.instagramUsernameNormalized ? `@${lead.instagramUsernameNormalized}` : lead.temporaryLabel || lead.id) : ""}
+              </strong>{" "}
+              para a lixeira? Você poderá restaurá-lo a qualquer momento em Configurações &gt; Lixeira.
+            </span>
+          }
+          confirmText="Mover para Lixeira"
+          cancelText="Cancelar"
+          isPermanent={false}
+        />
       </div>
     </div>
   );

@@ -35,5 +35,9 @@ const app = initAdminApp();
 export const adminAuth = getAuth(app);
 export const adminDb = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+export const credentialMode = (process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY)
+  ? "environment_cert"
+  : "google_default";
+
 export { app };
 

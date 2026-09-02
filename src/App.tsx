@@ -5,12 +5,15 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { ToastContainer } from "./components/common/ToastContainer";
 import { NewLeadModal } from "./components/leads/NewLeadModal";
 import { LeadDetailDrawer } from "./components/leads/LeadDetailDrawer";
+import { AppErrorBoundary } from "./components/common/AppErrorBoundary";
 
 import { DashboardView } from "./components/views/DashboardView";
 import { LeadsTableView } from "./components/views/LeadsTableView";
+import { ProspectNowView } from "./components/views/ProspectNowView";
 import { PipelineKanbanView } from "./components/views/PipelineKanbanView";
 import { AgendaView } from "./components/views/AgendaView";
 import { AudiencesView } from "./components/views/AudiencesView";
+import { ApifyImportView } from "./components/views/ApifyImportView";
 import { ScriptsView } from "./components/views/ScriptsView";
 import { PaidTrafficView } from "./components/views/PaidTrafficView";
 import { AiIntelligenceView } from "./components/views/AiIntelligenceView";
@@ -18,7 +21,7 @@ import { SettingsView } from "./components/views/SettingsView";
 import { ShieldAlert, LogIn, LogOut, ShieldCheck } from "lucide-react";
 
 const AppContent: React.FC = () => {
-  const { activeTab, session, firebaseUser, loginWithGoogle, logoutWithGoogle, loading } = useCrm();
+  const { activeTab, leadViewMode, navigateToLeads, session, firebaseUser, loginWithGoogle, logoutWithGoogle, loading } = useCrm();
 
   // 1. If not logged in with Google at all
   if (!firebaseUser && !loading) {
@@ -101,9 +104,16 @@ const AppContent: React.FC = () => {
 
         <main className="flex-1 p-4 lg:p-6 overflow-y-auto max-w-7xl mx-auto w-full">
           {activeTab === "dashboard" && <DashboardView />}
-          {activeTab === "leads" && <LeadsTableView />}
+          {activeTab === "leads" && (leadViewMode === "prospect" ? <ProspectNowView /> : <LeadsTableView />)}
           {activeTab === "pipeline" && <PipelineKanbanView />}
           {activeTab === "agenda" && <AgendaView />}
+          {activeTab === "apify_import" && (
+            <ApifyImportView
+              onNavigateToLeads={(filterParams) => {
+                navigateToLeads(filterParams || undefined);
+              }}
+            />
+          )}
           {activeTab === "audiences" && <AudiencesView />}
           {activeTab === "scripts" && <ScriptsView />}
           {activeTab === "paid_traffic" && <PaidTrafficView />}
@@ -122,8 +132,10 @@ const AppContent: React.FC = () => {
 
 export default function App() {
   return (
-    <CrmProvider>
-      <AppContent />
-    </CrmProvider>
+    <AppErrorBoundary>
+      <CrmProvider>
+        <AppContent />
+      </CrmProvider>
+    </AppErrorBoundary>
   );
 }

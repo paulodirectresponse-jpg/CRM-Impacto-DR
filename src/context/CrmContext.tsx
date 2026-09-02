@@ -15,7 +15,6 @@ import {
   signInWithPopup,
   firebaseSignOut,
   onAuthStateChanged,
-  testConnection,
   FirebaseUser,
 } from "../lib/firebase";
 
@@ -24,6 +23,7 @@ export type NavTab =
   | "leads"
   | "pipeline"
   | "agenda"
+  | "apify_import"
   | "paid_traffic"
   | "audiences"
   | "scripts"
@@ -38,14 +38,34 @@ export interface ToastMessage {
   duration?: number;
 }
 
+export type LeadViewMode = "table" | "prospect";
+
+export interface LeadFilterParams {
+  importBatchId?: string;
+  audienceId?: string;
+  search?: string;
+  status?: string;
+}
+
 interface CrmContextType {
   activeTab: NavTab;
   setActiveTab: (tab: NavTab) => void;
+  leadViewMode: LeadViewMode;
+  setLeadViewMode: (mode: LeadViewMode) => void;
+  leadFilterParams: LeadFilterParams | null;
+  setLeadFilterParams: React.Dispatch<React.SetStateAction<LeadFilterParams | null>>;
+  navigateToLeads: (params?: LeadFilterParams) => void;
+  startProspecting: () => void;
   leads: Lead[];
+  setLeads: React.Dispatch<React.SetStateAction<Lead[]>>;
   audiences: Audience[];
+  setAudiences: React.Dispatch<React.SetStateAction<Audience[]>>;
   scripts: Script[];
+  setScripts: React.Dispatch<React.SetStateAction<Script[]>>;
   lossReasons: LossReason[];
+  setLossReasons: React.Dispatch<React.SetStateAction<LossReason[]>>;
   settings: AppSettings | null;
+  setSettings: React.Dispatch<React.SetStateAction<AppSettings | null>>;
   session: UserSession | null;
   metrics: DashboardMetrics | null;
   loading: boolean;
@@ -66,12 +86,20 @@ interface CrmContextType {
   logoutWithGoogle: () => Promise<void>;
   firebaseUser: FirebaseUser | null;
   isFirebaseConnected: boolean;
+  upsertLeadInState: (lead: Lead) => void;
+  removeLeadFromState: (id: string) => void;
+  upsertAudienceInState: (audience: Audience) => void;
+  removeAudienceFromState: (id: string) => void;
+  upsertScriptInState: (script: Script) => void;
+  removeScriptFromState: (id: string) => void;
 }
 
 const CrmContext = createContext<CrmContextType | undefined>(undefined);
 
 export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [activeTab, setActiveTab] = useState<NavTab>("dashboard");
+  const [leadViewMode, setLeadViewMode] = useState<LeadViewMode>("table");
+  const [leadFilterParams, setLeadFilterParams] = useState<LeadFilterParams | null>(null);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [audiences, setAudiences] = useState<Audience[]>([]);
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -100,6 +128,54 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const upsertLeadInState = useCallback((lead: Lead) => {
+    setLeads((prev) => {
+      const idx = prev.findIndex((l) => l.id === lead.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = lead;
+        return next;
+      }
+      return [lead, ...prev];
+    });
+  }, []);
+
+  const removeLeadFromState = useCallback((id: string) => {
+    setLeads((prev) => prev.filter((l) => l.id !== id));
+  }, []);
+
+  const upsertAudienceInState = useCallback((audience: Audience) => {
+    setAudiences((prev) => {
+      const idx = prev.findIndex((a) => a.id === audience.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = audience;
+        return next;
+      }
+      return [...prev, audience];
+    });
+  }, []);
+
+  const removeAudienceFromState = useCallback((id: string) => {
+    setAudiences((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const upsertScriptInState = useCallback((script: Script) => {
+    setScripts((prev) => {
+      const idx = prev.findIndex((s) => s.id === script.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = script;
+        return next;
+      }
+      return [...prev, script];
+    });
+  }, []);
+
+  const removeScriptFromState = useCallback((id: string) => {
+    setScripts((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
   const refreshLeads = useCallback(async () => {
@@ -261,23 +337,51 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
-    testConnection().then((connected) => {
-      setIsFirebaseConnected(connected);
-    });
+    api.getHealth()
+      .then((health) => {
+        setIsFirebaseConnected(Boolean(health?.database?.reachable && health?.database?.status === "ok"));
+      })
+      .catch(() => {
+        setIsFirebaseConnected(false);
+      });
 
     return () => unsubscribe();
   }, [refreshAll]);
+
+  const startProspecting = useCallback(() => {
+    setActiveTab("leads");
+    setLeadViewMode("prospect");
+  }, []);
+
+  const navigateToLeads = useCallback((params?: LeadFilterParams) => {
+    if (params) {
+      setLeadFilterParams(params);
+    }
+    setLeadViewMode("table");
+    setActiveTab("leads");
+  }, []);
 
   return (
     <CrmContext.Provider
       value={{
         activeTab,
         setActiveTab,
+        leadViewMode,
+        setLeadViewMode,
+        leadFilterParams,
+        setLeadFilterParams,
+        navigateToLeads,
+        startProspecting,
         leads,
+        setLeads,
         audiences,
+        setAudiences,
         scripts,
+        setScripts,
         lossReasons,
+        setLossReasons,
         settings,
+        setSettings,
         session,
         metrics,
         loading,
@@ -298,6 +402,12 @@ export const CrmProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logoutWithGoogle,
         firebaseUser,
         isFirebaseConnected,
+        upsertLeadInState,
+        removeLeadFromState,
+        upsertAudienceInState,
+        removeAudienceFromState,
+        upsertScriptInState,
+        removeScriptFromState,
       }}
     >
       {children}

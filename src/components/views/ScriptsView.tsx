@@ -19,10 +19,12 @@ import {
   MessageSquare,
   ChevronRight,
   Info,
+  Trash2,
 } from "lucide-react";
 import { useCrm } from "../../context/CrmContext";
 import { Script } from "../../types";
 import { api } from "../../services/api";
+import { ConfirmDeleteModal } from "../common/ConfirmDeleteModal";
 
 export const ScriptsView: React.FC = () => {
   const { scripts, audiences, metrics, refreshAll, addToast } = useCrm();
@@ -42,6 +44,10 @@ export const ScriptsView: React.FC = () => {
   const [audienceId, setAudienceId] = useState("");
   const [content, setContent] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<Script | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Prompt View Modal for inspecting prompt attached to a script
@@ -180,6 +186,29 @@ export const ScriptsView: React.FC = () => {
       await refreshAll();
     } catch (err: any) {
       addToast({ type: "error", title: "Erro", message: err.message });
+    }
+  };
+
+  const handleDeleteScriptClick = (scr: Script) => {
+    setDeleteTarget(scr);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      const res = await api.deleteScript(deleteTarget.id);
+      addToast({
+        type: "success",
+        title: "Script Excluído",
+        message: res.message || "Script movido para a lixeira com sucesso.",
+      });
+      setDeleteTarget(null);
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao excluir script", message: err.message });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -385,7 +414,7 @@ export const ScriptsView: React.FC = () => {
                       <div>
                         <span className="text-[10px] text-slate-400 block">Conversão</span>
                         <strong className="text-emerald-600">
-                          {(scrMetric.conversionRate ?? scrMetric.closeRate ?? scrMetric.rate ?? 0).toFixed(1)}%
+                          {(scrMetric.conversionRate ?? scrMetric.closeRate ?? 0).toFixed(1)}%
                         </strong>
                       </div>
                     </div>
@@ -426,6 +455,14 @@ export const ScriptsView: React.FC = () => {
                       title={scr.isActive ? "Arquivar Script" : "Reativar Script"}
                     >
                       <Archive className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDeleteScriptClick(scr)}
+                      className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md cursor-pointer"
+                      title="Excluir Script"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -707,6 +744,25 @@ export const ScriptsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirm Delete Script Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        title="Excluir Script"
+        description={
+          <span>
+            Tem certeza que deseja mover o script{" "}
+            <strong className="text-slate-900 font-semibold">"{deleteTarget?.baseName}"</strong> (v{deleteTarget?.version}) para a lixeira?
+            Você poderá restaurá-lo a qualquer momento em Configurações &gt; Lixeira.
+          </span>
+        }
+        confirmText="Mover para Lixeira"
+        cancelText="Cancelar"
+        isPermanent={false}
+      />
     </div>
   );
 };

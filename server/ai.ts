@@ -476,3 +476,270 @@ Retorne estritamente um JSON com:
   }
 }
 
+/**
+ * AI Strategy Assistant for Apify Import (V2.1.1)
+ */
+export async function generateImportStrategyWithAi(
+  params: {
+    audience: Audience;
+    location?: string;
+    mode: "quality" | "balanced" | "volume";
+  },
+  modelName = "gpt-5.6-luna"
+): Promise<{
+  success: boolean;
+  strategy?: {
+    keywords: string[];
+    searchLimitPerKeyword: number;
+    minFollowers: number;
+    maxFollowers: number | null;
+    ignorePrivate: boolean;
+    liveSearch: boolean;
+    reasoning: {
+      summary: string;
+      keywordStrategy: string;
+      followerStrategy: string;
+    };
+    assumptions: string[];
+  };
+  error?: string;
+  code?: string;
+}> {
+  const { audience, location, mode } = params;
+
+  // Fallback generator if AI is unavailable or offline
+  const getFallbackStrategy = () => {
+    const audName = audience.name.toLowerCase();
+    const locClean = location ? location.toLowerCase().trim() : "";
+    
+    // Base keywords inferred from audience name & criteria
+    const words = Array.from(
+      new Set(
+        `${audience.name} ${audience.criteriaA} ${audience.description}`
+          .toLowerCase()
+          .replace(/[^\w\sà-ú]/gi, " ")
+          .split(/\s+/)
+          .filter((w) => w.length > 3)
+      )
+    );
+
+    const baseKeywords = [
+      audName,
+      `especialista ${audName}`,
+      `clinica ${audName}`,
+      `doutor ${audName}`,
+      `mentoria ${audName}`,
+      `consultoria ${audName}`,
+      `criador ${audName}`,
+      `palestrante ${audName}`,
+    ];
+
+    if (locClean) {
+      baseKeywords.push(`${audName} ${locClean}`);
+      baseKeywords.push(`clinica ${locClean}`);
+    }
+
+    const uniqueKeywords = Array.from(new Set(baseKeywords)).slice(0, 15);
+    while (uniqueKeywords.length < 8) {
+      const w = words.shift() || `profissional ${uniqueKeywords.length + 1}`;
+      uniqueKeywords.push(w);
+    }
+
+    const searchLimit = mode === "quality" ? 20 : mode === "balanced" ? 30 : 50;
+    const minFol = mode === "quality" ? 3000 : mode === "balanced" ? 1500 : 500;
+    const maxFol = mode === "quality" ? 150000 : mode === "balanced" ? 300000 : null;
+
+    return {
+      keywords: uniqueKeywords,
+      searchLimitPerKeyword: searchLimit,
+      minFollowers: minFol,
+      maxFollowers: maxFol,
+      ignorePrivate: true,
+      targetAudienceRationale: `Estratégia no modo ${mode.toUpperCase()} estruturada para o público ${audience.name}${location ? ` em ${location}` : ""}.`,
+      source: "fallback" as const,
+      // Backward compatibility fields
+      suggestedKeywords: uniqueKeywords,
+      suggestedSearchLimit: searchLimit,
+      suggestedMinFollowers: minFol,
+      suggestedMaxFollowers: maxFol,
+      suggestedIgnorePrivate: true,
+      rationale: `Estratégia no modo ${mode.toUpperCase()} estruturada para o público ${audience.name}${location ? ` em ${location}` : ""}.`,
+      liveSearch: false,
+      reasoning: {
+        summary: `Estratégia no modo ${mode.toUpperCase()} estruturada para o público ${audience.name}${location ? ` em ${location}` : ""}.`,
+        keywordStrategy: `Combinação de termos de autoridade, nicho e atuação direta em redes sociais.`,
+        followerStrategy: `Faixa de seguidores ajustada para priorizar contas ativas com potencial comercial para serviços de vídeo.`,
+      },
+      assumptions: [
+        "Faixa de seguidores estimada para maximizar perfis monetizados e com consistência de conteúdo.",
+        "Perfis privados ignorados para garantir capacidade de visualização e avaliação prévia.",
+      ],
+    };
+  };
+
+  try {
+    const openai = getOpenAIClient();
+    if (!openai) {
+      // Return structured fallback strategy with clear notification
+      return {
+        success: true,
+        strategy: getFallbackStrategy(),
+      };
+    }
+
+    const modeInstructions =
+      mode === "quality"
+        ? "MODO QUALIDADE: Priorize termos específicos e de alta autoridade/ticket. Sugira searchLimitPerKeyword menor (15-25), faixa de seguidores mais seletiva (ex: 3.000 a 150.000) e termos com forte intenção comercial."
+        : mode === "volume"
+        ? "MODO VOLUME: Priorize expansão de candidatos com termos amplos do ecossistema. Sugira searchLimitPerKeyword maior (40-75), faixa de seguidores mais aberta (ex: min 1.000, maxFol null ou alto)."
+        : "MODO EQUILÍBRIO: Combine termos diretos, variações de autoridade e termos comerciais moderados. Sugira searchLimitPerKeyword em torno de 25-35 e faixa intermediária (ex: 2.000 a 250.000).";
+
+    const prompt = `Você é o Estrategista-Chefe de Inteligência de Prospecção para agências de edição de vídeo de alta conversão.
+Gere uma estratégia altamente otimizada de busca por palavras-chave e parâmetros para o robô de raspagem do Instagram (Apify Instagram Search Scraper).
+
+DADOS DO PÚBLICO-ALVO SELECIONADO:
+- Nome: ${audience.name}
+- Descrição: ${audience.description}
+- Critérios Classe A (Alta Prioridade): ${audience.criteriaA}
+- Critérios Classe B: ${audience.criteriaB}
+- Critérios Classe C: ${audience.criteriaC}
+- Instruções de Análise Visual: ${audience.aiInstructions || "Nenhuma"}
+${location ? `- LOCALIZAÇÃO PRIORITÁRIA INFORMADA: "${location}"` : ""}
+
+DIRETRIZES DO MODO SELECIONADO (${mode.toUpperCase()}):
+${modeInstructions}
+
+REGRAS OBRIGATÓRIAS PARA AS PALAVRAS-CHAVE (KEYWORDS):
+1. Gere entre 8 e 25 palavras-chave de busca no Instagram.
+2. O conjunto deve ser DIVERSIFICADO, cobrindo:
+   - Profissão / Cargo / Título direto (ex: cirurgiao plastico, dermatologista)
+   - Nicho e sub-especialidades (ex: rinoplastia, harmonizacao)
+   - Sinais de autoridade / conteúdo (ex: podcast medico, cursos medicos, mentoria)
+   - Termos comerciais e de negócio (ex: clinica medica, consultorio)
+   - Termos naturais frequentemente usados na Bio do Instagram
+${location ? `3. IMPORTANTE PARA LOCALIZAÇÃO: Como foi informada "${location}", gere uma parte relevante das palavras (ex: 30-50%) combinando termos com a cidade/região (ex: "dermatologista ${location}", "clinica ${location}"), mas NÃO coloque a localização em todas as palavras para não limitar excessivamente a busca.` : "3. Como não há localização restrita, foque em alcance nacional/global em língua portuguesa."}
+4. Remova repetições e variações inúteis. A lista deve ser rigorosamente deduplicada.
+5. Evite termos genéricos demais sem contexto comercial e evite hashtags aleatórias.
+
+REGRAS DE FILTRO DE SEGUIDORES E PARÂMETROS:
+- searchLimitPerKeyword: número inteiro entre 1 e 100 sugerido para o modo ${mode}.
+- minFollowers: número inteiro >= 0 (ex: 1000 a 5000).
+- maxFollowers: número inteiro >= minFollowers ou null se não houver teto.
+- ignorePrivate: boolean (true por padrão).
+- liveSearch: boolean (false por padrão).
+- Se o público não definir teto explícito de seguidores, inclua a suposição em "assumptions".
+
+Retorne estritamente um objeto JSON com o formato:
+{
+  "keywords": ["termo 1", "termo 2", ...],
+  "searchLimitPerKeyword": number,
+  "minFollowers": number,
+  "maxFollowers": number | null,
+  "ignorePrivate": boolean,
+  "liveSearch": boolean,
+  "reasoning": {
+    "summary": "Resumo executivo da estratégia em 1-2 frases",
+    "keywordStrategy": "Explicação da escolha dos grupos de palavras",
+    "followerStrategy": "Justificativa da faixa de seguidores e limites"
+  },
+  "assumptions": [
+    "Premissa 1 adotada",
+    "Premissa 2 adotada"
+  ]
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL || modelName || "gpt-5.6-luna",
+      messages: [
+        {
+          role: "system",
+          content: "Você é um assistente sênior de growth e estratégia de prospecção comercial via Instagram.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      return {
+        success: true,
+        strategy: getFallbackStrategy(),
+      };
+    }
+
+    const parsed = JSON.parse(content);
+    
+    // Validate and normalize AI output
+    let rawKeywords: string[] = Array.isArray(parsed.keywords) ? parsed.keywords : [];
+    let cleanKeywords = Array.from(
+      new Set(
+        rawKeywords
+          .map((k: any) => String(k).trim().toLowerCase())
+          .filter((k: string) => k.length > 0)
+      )
+    );
+
+    if (cleanKeywords.length < 8) {
+      const fallback = getFallbackStrategy();
+      for (const kw of fallback.keywords) {
+        if (!cleanKeywords.includes(kw)) {
+          cleanKeywords.push(kw);
+        }
+        if (cleanKeywords.length >= 8) break;
+      }
+    }
+    if (cleanKeywords.length > 25) {
+      cleanKeywords = cleanKeywords.slice(0, 25);
+    }
+
+    const searchLimit = Math.max(1, Math.min(100, Number(parsed.searchLimitPerKeyword) || (mode === "quality" ? 20 : 30)));
+    const minFol = Math.max(0, Number(parsed.minFollowers) || (mode === "quality" ? 2500 : 1000));
+    let maxFol: number | null = null;
+    if (parsed.maxFollowers !== null && parsed.maxFollowers !== undefined && Number(parsed.maxFollowers) >= minFol) {
+      maxFol = Number(parsed.maxFollowers);
+    }
+
+    const summaryRationale = parsed.reasoning?.summary || `Estratégia calibrada para ${audience.name}.`;
+    const strategy = {
+      keywords: cleanKeywords,
+      searchLimitPerKeyword: searchLimit,
+      minFollowers: minFol,
+      maxFollowers: maxFol,
+      ignorePrivate: parsed.ignorePrivate !== false,
+      targetAudienceRationale: summaryRationale,
+      source: "ai" as const,
+      // Backward compatibility fields
+      suggestedKeywords: cleanKeywords,
+      suggestedSearchLimit: searchLimit,
+      suggestedMinFollowers: minFol,
+      suggestedMaxFollowers: maxFol,
+      suggestedIgnorePrivate: parsed.ignorePrivate !== false,
+      rationale: summaryRationale,
+      liveSearch: parsed.liveSearch === true,
+      reasoning: {
+        summary: summaryRationale,
+        keywordStrategy: parsed.reasoning?.keywordStrategy || "Termos selecionados com base no perfil e nicho.",
+        followerStrategy: parsed.reasoning?.followerStrategy || "Faixa de seguidores ajustada para otimização de conversão.",
+      },
+      assumptions: Array.isArray(parsed.assumptions) && parsed.assumptions.length > 0
+        ? parsed.assumptions
+        : ["Faixa de seguidores calculada para perfis com potencial ativo de geração de conteúdo."],
+    };
+
+    return {
+      success: true,
+      strategy,
+    };
+  } catch (err: any) {
+    // If OpenAI fails or times out, provide the robust fallback strategy
+    return {
+      success: true,
+      strategy: getFallbackStrategy(),
+    };
+  }
+}
+

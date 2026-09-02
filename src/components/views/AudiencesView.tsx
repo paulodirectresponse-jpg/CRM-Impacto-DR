@@ -13,10 +13,12 @@ import {
   Loader2,
   Wand2,
   Check,
+  Trash2,
 } from "lucide-react";
 import { useCrm } from "../../context/CrmContext";
 import { Audience } from "../../types";
 import { api } from "../../services/api";
+import { ConfirmDeleteModal } from "../common/ConfirmDeleteModal";
 
 export const AudiencesView: React.FC = () => {
   const { audiences, refreshAll, addToast, leads } = useCrm();
@@ -31,6 +33,10 @@ export const AudiencesView: React.FC = () => {
   const [criteriaC, setCriteriaC] = useState("");
   const [aiInstructions, setAiInstructions] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // AI Prompt generation state
   const [aiPrompt, setAiPrompt] = useState("");
@@ -152,6 +158,29 @@ export const AudiencesView: React.FC = () => {
       await refreshAll();
     } catch (err: any) {
       addToast({ type: "error", title: "Erro ao atualizar público", message: err.message });
+    }
+  };
+
+  const handleDeleteClick = (id: string, audName: string) => {
+    setDeleteTarget({ id, name: audName });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      const res = await api.deleteAudience(deleteTarget.id);
+      addToast({
+        type: "success",
+        title: "Público Excluído",
+        message: res.message || "Público movido para a lixeira com sucesso.",
+      });
+      setDeleteTarget(null);
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao excluir público", message: err.message });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -319,7 +348,7 @@ export const AudiencesView: React.FC = () => {
                     onClick={() => handleArchive(aud.id, aud.isActive)}
                     className={`text-xs font-semibold p-1.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer ${
                       aud.isActive
-                        ? "text-rose-600 hover:bg-rose-50"
+                        ? "text-slate-600 hover:bg-slate-100"
                         : "text-indigo-600 hover:bg-indigo-50"
                     }`}
                   >
@@ -334,6 +363,14 @@ export const AudiencesView: React.FC = () => {
                         <span>Reativar</span>
                       </>
                     )}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteClick(aud.id, aud.name)}
+                    className="text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 p-1.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                    title="Excluir Público"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Excluir</span>
                   </button>
                 </div>
               </div>
@@ -536,6 +573,25 @@ export const AudiencesView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirm Delete Audience Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        title="Excluir Público-Alvo"
+        description={
+          <span>
+            Tem certeza que deseja mover o público{" "}
+            <strong className="text-slate-900 font-semibold">"{deleteTarget?.name}"</strong> para a lixeira?
+            Você poderá restaurá-lo a qualquer momento em Configurações &gt; Lixeira.
+          </span>
+        }
+        confirmText="Mover para Lixeira"
+        cancelText="Cancelar"
+        isPermanent={false}
+      />
     </div>
   );
 };

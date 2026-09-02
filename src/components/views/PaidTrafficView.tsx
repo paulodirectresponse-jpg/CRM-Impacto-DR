@@ -6,12 +6,17 @@ import {
   Percent,
   Edit3,
   ChevronRight,
+  Calendar,
+  Filter,
 } from "lucide-react";
 import { useCrm } from "../../context/CrmContext";
 import { api } from "../../services/api";
+import { getPeriodInterval, isWithinInterval } from "../../utils/dateUtils";
 
 export const PaidTrafficView: React.FC = () => {
   const { leads, settings, setSelectedLeadId, refreshAll, addToast } = useCrm();
+
+  const [periodFilter, setPeriodFilter] = useState<"all" | "thisMonth" | "thisWeek" | "today">("all");
 
   const [avgTicket, setAvgTicket] = useState<number>(() => {
     return settings?.averageContractValue ?? 0;
@@ -34,10 +39,17 @@ export const PaidTrafficView: React.FC = () => {
   const [tempTicket, setTempTicket] = useState((settings?.averageContractValue ?? 0).toString());
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
-  // Filter only paid traffic leads
+  // Filter paid traffic leads according to active period filter
   const paidLeads = useMemo(() => {
-    return leads.filter((l) => l.source === "paid" && !l.isArchived);
-  }, [leads]);
+    const allPaid = leads.filter((l) => l.source === "paid" && !l.isArchived);
+    if (periodFilter === "all") return allPaid;
+
+    const { startIso, endIso } = getPeriodInterval(periodFilter);
+    return allPaid.filter((l) => {
+      const relevantDate = l.stageDates?.contactedAt || l.createdAt;
+      return isWithinInterval(relevantDate, startIso, endIso);
+    });
+  }, [leads, periodFilter]);
 
   // Aggregate stats utilizing stageDates for precision
   const totalPaidLeads = paidLeads.length;
@@ -60,7 +72,8 @@ export const PaidTrafficView: React.FC = () => {
       l.status === "fechado"
   ).length;
 
-  const closedPaid = paidLeads.filter((l) => !!l.stageDates?.closedAt || l.status === "fechado").length;
+  const closedPaidLeads = paidLeads.filter((l) => !!l.stageDates?.closedAt || l.status === "fechado");
+  const closedPaid = closedPaidLeads.length;
   const lostPaid = paidLeads.filter((l) => !!l.stageDates?.lostAt || l.status === "perdido").length;
 
   // Conversion rates
@@ -68,8 +81,14 @@ export const PaidTrafficView: React.FC = () => {
   const testRate = respondedPaid > 0 ? (testsAcceptedPaid / respondedPaid) * 100 : 0;
   const closeRate = contactedPaid > 0 ? (closedPaid / contactedPaid) * 100 : 0;
 
-  // Financial calculations
-  const totalRevenue = closedPaid * avgTicket;
+  // Financial calculations with dynamic contract values per lead
+  const totalRevenue = useMemo(() => {
+    return closedPaidLeads.reduce((acc, lead) => {
+      const customVal = lead.customerData?.contractValue;
+      return acc + (customVal !== undefined && customVal > 0 ? customVal : avgTicket);
+    }, 0);
+  }, [closedPaidLeads, avgTicket]);
+
   const cpl = totalPaidLeads > 0 ? totalAdSpend / totalPaidLeads : 0;
   const cac = closedPaid > 0 ? totalAdSpend / closedPaid : 0;
   const roas = totalAdSpend > 0 ? totalRevenue / totalAdSpend : 0;
@@ -77,12 +96,13 @@ export const PaidTrafficView: React.FC = () => {
 
   // Campaign breakdowns with real recorded campaign spend from settings or 0
   const campaignsSummary = useMemo(() => {
-    const map = new Map<string, { count: number; contacted: number; closed: number }>();
+    const map = new Map<string, { count: number; contacted: number; closed: number; leads: typeof paidLeads }>();
 
     paidLeads.forEach((lead) => {
       const campaign = lead.paidCampaign?.trim() || "Tráfego Direto / Anúncios Instagram";
-      const curr = map.get(campaign) || { count: 0, contacted: 0, closed: 0 };
+      const curr = map.get(campaign) || { count: 0, contacted: 0, closed: 0, leads: [] };
       curr.count += 1;
+      curr.leads.push(lead);
       if (lead.stageDates?.contactedAt || (lead.status !== "novo" && lead.status !== "analisado")) curr.contacted += 1;
       if (lead.stageDates?.closedAt || lead.status === "fechado") curr.closed += 1;
       map.set(campaign, curr);
@@ -92,7 +112,12 @@ export const PaidTrafficView: React.FC = () => {
 
     return Array.from(map.entries()).map(([name, data]) => {
       const realCampaignSpend = spendMap[name] !== undefined ? spendMap[name] : 0;
-      const rev = data.closed * avgTicket;
+      const closedInCamp = data.leads.filter((l) => !!l.stageDates?.closedAt || l.status === "fechado");
+      const rev = closedInCamp.reduce((acc, l) => {
+        const customVal = l.customerData?.contractValue;
+        return acc + (customVal !== undefined && customVal > 0 ? customVal : avgTicket);
+      }, 0);
+
       const campRoas = realCampaignSpend > 0 ? rev / realCampaignSpend : 0;
       const campCpl = data.count > 0 && realCampaignSpend > 0 ? realCampaignSpend / data.count : 0;
       const campCac = data.closed > 0 && realCampaignSpend > 0 ? realCampaignSpend / data.closed : 0;
@@ -157,7 +182,22 @@ export const PaidTrafficView: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end md:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-end md:self-auto">
+          {/* Period Filter Dropdown */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+            <select
+              value={periodFilter}
+              onChange={(e) => setPeriodFilter(e.target.value as any)}
+              className="text-xs font-semibold text-slate-700 bg-transparent border-0 focus:ring-0 cursor-pointer outline-none"
+            >
+              <option value="all">Todo o Período</option>
+              <option value="thisMonth">Este Mês</option>
+              <option value="thisWeek">Esta Semana</option>
+              <option value="today">Hoje</option>
+            </select>
+          </div>
+
           <button
             onClick={() => {
               setTempSpend(totalAdSpend.toString());

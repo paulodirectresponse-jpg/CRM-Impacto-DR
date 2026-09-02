@@ -12,10 +12,35 @@ import {
   ProspectingScheduleItem,
   AcceptanceTestResult,
   Activity,
+  ProspectLeadFilters,
+  ProspectNextLeadResponse,
+  ImportBatch,
 } from "../types";
 import { auth } from "../lib/firebase";
 
 const API_BASE = "/api";
+
+export class ApiError extends Error {
+  public status: number;
+  public code?: string;
+  public requestId?: string;
+  public body?: any;
+  public details?: any;
+  public duplicateLead?: Lead;
+  public currentLead?: Lead;
+
+  constructor(message: string, status: number, body?: any) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+    this.code = body?.code;
+    this.requestId = body?.requestId;
+    this.details = body?.details;
+    this.duplicateLead = body?.duplicateLead;
+    this.currentLead = body?.currentLead;
+  }
+}
 
 // Helper function to extract Firebase ID token for Authorization header
 async function getAuthHeaders(): Promise<HeadersInit> {
@@ -51,19 +76,40 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   if (!res.ok) {
     let errorMsg = `Erro na requisição (${res.status})`;
+    let body: any = null;
     try {
-      const body = await res.json();
-      if (body.error) errorMsg = body.error;
+      body = await res.json();
+      if (body && body.error) errorMsg = body.error;
     } catch {
-      // Ignored
+      // Non-JSON response
     }
-    throw new Error(errorMsg);
+    throw new ApiError(errorMsg, res.status, body);
   }
 
   return res.json();
 }
 
 export const api = {
+  // Health
+  getHealth: () =>
+    request<{
+      status: "ok" | "degraded";
+      database: {
+        provider: "firestore";
+        reachable: boolean;
+        status: "ok" | "permission_denied" | "unavailable";
+        projectId: string;
+        databaseId: string;
+        credentialMode: string;
+        error?: string | null;
+      };
+      auth: string;
+      ai: {
+        configured: boolean;
+        model: string;
+      };
+    }>("/health"),
+
   // Session
   getSession: () => request<UserSession>("/auth/session"),
 
@@ -92,13 +138,19 @@ export const api = {
 
   getLeadById: (id: string) => request<Lead>(`/leads/${id}`),
 
+  getNextProspectLead: (filters: ProspectLeadFilters = {}) =>
+    request<ProspectNextLeadResponse>("/leads/prospect-next", {
+      method: "POST",
+      body: JSON.stringify(filters),
+    }),
+
   getLeadActivities: (leadId: string) => request<Activity[]>(`/leads/${leadId}/activities`),
 
   createLead: (payload: {
     instagramUsername?: string;
     temporaryLabel?: string;
     instagramUrl?: string;
-    manualClass: "A" | "B" | "C";
+    manualClass: import("../types").OperationalClass;
     audienceId: string;
     scriptVersionId?: string;
     notes?: string;
@@ -132,18 +184,29 @@ export const api = {
   archiveLead: (id: string, expectedVersion?: number | boolean) =>
     request<{ success: boolean; lead: Lead }>(`/leads/${id}/archive`, {
       method: "POST",
-      body: JSON.stringify({ expectedVersion }),
+      body: JSON.stringify({ isArchived: true, expectedVersion }),
+    }),
+
+  deleteLead: (id: string) =>
+    request<{ success: boolean; deletionMode: "hard" | "soft"; message: string }>(`/leads/${id}`, {
+      method: "DELETE",
+    }),
+
+  restoreLead: (id: string) =>
+    request<{ success: boolean; lead: Lead }>(`/leads/${id}/restore`, {
+      method: "POST",
     }),
 
   addActivity: (
     leadId: string,
     payload: {
-      type: "note" | "contact_attempt" | "response" | "test_offer" | "proposal" | "stage_change";
-      description: string;
-      metadata?: Record<string, any>;
+      type: "creation" | "status_change" | "class_change" | "audience_change" | "script_change" | "test_status_change" | "loss" | "reopen" | "closed" | "system360_marked" | "system360_unmarked" | "ai_analysis" | "note_added" | "duplicate_override";
+      title?: string;
+      description?: string;
+      notes?: string;
     }
   ) =>
-    request<Lead>(`/leads/${leadId}/activities`, {
+    request<Activity>(`/leads/${leadId}/activities`, {
       method: "POST",
       body: JSON.stringify(payload),
     }),
@@ -151,8 +214,9 @@ export const api = {
   batchImportLeads: (
     leads: Array<{
       instagramUsername?: string;
+      instagramUrl?: string;
       temporaryLabel?: string;
-      manualClass: "A" | "B" | "C";
+      manualClass: "A" | "B" | "C" | "PENDENTE";
       audienceId: string;
       scriptVersionId?: string;
       notes?: string;
@@ -193,9 +257,23 @@ export const api = {
       method: "POST",
     }),
 
+  deleteAudience: (id: string) =>
+    request<{ success: boolean; audience?: Audience; message: string }>(`/audiences/${id}`, {
+      method: "DELETE",
+    }),
+
+  restoreAudience: (id: string) =>
+    request<{ success: boolean; audience?: Audience; message: string }>(`/audiences/${id}/restore`, {
+      method: "POST",
+    }),
+
   // Scripts
-  getScripts: (includeArchived = false) =>
-    request<Script[]>(`/scripts?includeArchived=${includeArchived}`),
+  getScripts: (includeArchived = false, audienceId?: string) => {
+    const params = new URLSearchParams();
+    if (includeArchived) params.set("includeArchived", "true");
+    if (audienceId) params.set("audienceId", audienceId);
+    return request<Script[]>(`/scripts?${params.toString()}`);
+  },
 
   createScript: (payload: {
     baseName: string;
@@ -223,6 +301,16 @@ export const api = {
     request<{ script: Script; createdNewVersion: boolean }>(`/scripts/${id}`, {
       method: "PATCH",
       body: JSON.stringify(payload),
+    }),
+
+  deleteScript: (id: string) =>
+    request<{ success: boolean; script?: Script; message: string }>(`/scripts/${id}`, {
+      method: "DELETE",
+    }),
+
+  restoreScript: (id: string) =>
+    request<{ success: boolean; script?: Script; message: string }>(`/scripts/${id}/restore`, {
+      method: "POST",
     }),
 
   // Goals & Settings
@@ -253,6 +341,11 @@ export const api = {
   archiveLossReason: (id: string) =>
     request<{ success: boolean }>(`/loss-reasons/${id}/archive`, {
       method: "POST",
+    }),
+
+  deleteLossReason: (id: string) =>
+    request<{ success: boolean; deletionMode: "hard" | "soft"; message: string }>(`/loss-reasons/${id}`, {
+      method: "DELETE",
     }),
 
   // Dashboard Metrics
@@ -346,7 +439,7 @@ export const api = {
       body: JSON.stringify(plan),
     }),
 
-  // Acceptance Tests & Database management
+  // Acceptance Tests
   runAcceptanceTests: () =>
     request<{
       total: number;
@@ -357,6 +450,179 @@ export const api = {
     }>("/tests/run", {
       method: "POST",
     }),
+
+  // Apify Integration (V2.1)
+  getApifyStatus: () =>
+    request<{
+      configured: boolean;
+      status: "connected" | "not_configured" | "error";
+      maskedToken?: string;
+      accountId?: string;
+      accountUsername?: string;
+      lastTestAt?: string;
+      errorMessage?: string;
+    }>("/integrations/apify/status"),
+
+  saveApifyToken: (token: string) =>
+    request<{
+      configured: boolean;
+      status: "connected" | "not_configured" | "error";
+      maskedToken?: string;
+      accountId?: string;
+      accountUsername?: string;
+      lastTestAt?: string;
+    }>("/integrations/apify/token", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
+  testApifyConnection: () =>
+    request<{
+      success: boolean;
+      user?: any;
+      error?: string;
+    }>("/integrations/apify/test", {
+      method: "POST",
+    }),
+
+  removeApifyToken: () =>
+    request<{ success: boolean; message: string }>("/integrations/apify/token", {
+      method: "DELETE",
+    }),
+
+  // Import Configs (V2.1)
+  getImportConfigs: (includeArchived = false) =>
+    request<import("../types").ImportConfig[]>(`/import-configs?includeArchived=${includeArchived}`),
+
+  getImportConfigById: (id: string) =>
+    request<import("../types").ImportConfig>(`/import-configs/${id}`),
+
+  createImportConfig: (payload: {
+    name: string;
+    audienceId: string;
+    keywords: string[];
+    searchLimitPerKeyword?: number;
+    minFollowers?: number;
+    maxFollowers?: number;
+    ignorePrivate?: boolean;
+    liveSearch?: boolean;
+  }) =>
+    request<import("../types").ImportConfig>("/import-configs", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  updateImportConfig: (id: string, patch: Partial<import("../types").ImportConfig>) =>
+    request<import("../types").ImportConfig>(`/import-configs/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+
+  deleteImportConfig: (id: string) =>
+    request<{ success: boolean; config?: import("../types").ImportConfig; message: string }>(`/import-configs/${id}`, {
+      method: "DELETE",
+    }),
+
+  restoreImportConfig: (id: string) =>
+    request<{ success: boolean; config?: import("../types").ImportConfig; message: string }>(`/import-configs/${id}/restore`, {
+      method: "POST",
+    }),
+
+  // Trash & Deleted Items (V2.1.1)
+  getTrashItems: () =>
+    request<import("../types").TrashItems>("/trash"),
+
+  permanentlyDeleteLead: (id: string) =>
+    request<{ success: boolean; message: string }>(`/trash/leads/${id}`, {
+      method: "DELETE",
+    }),
+
+  permanentlyDeleteScript: (id: string) =>
+    request<{ success: boolean; message: string }>(`/trash/scripts/${id}`, {
+      method: "DELETE",
+    }),
+
+  permanentlyDeleteAudience: (id: string) =>
+    request<{ success: boolean; message: string }>(`/trash/audiences/${id}`, {
+      method: "DELETE",
+    }),
+
+  permanentlyDeleteImportConfig: (id: string) =>
+    request<{ success: boolean; message: string }>(`/trash/import-configs/${id}`, {
+      method: "DELETE",
+    }),
+
+  emptyTrash: (category?: "all" | "leads" | "scripts" | "audiences" | "configs") =>
+    request<{ success: boolean; purgedCount: number; message: string }>("/trash/empty", {
+      method: "POST",
+      body: JSON.stringify({ category: category || "all" }),
+    }),
+
+  // AI Import Strategy (V2.1.1)
+  generateAiImportStrategy: (payload: import("../types").AiImportStrategyPayload) =>
+    request<import("../types").AiImportStrategyResult>("/imports/ai-strategy", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  // Import Batches (V2.1)
+  getImportBatches: () =>
+    request<import("../types").ImportBatch[]>("/import-batches"),
+
+  getImportBatchById: (id: string) =>
+    request<import("../types").ImportBatch>(`/import-batches/${id}`),
+
+  startApifyImport: (payload: {
+    configId?: string;
+    audienceId: string;
+    keywords: string[];
+    searchLimitPerKeyword?: number;
+    minFollowers?: number;
+    maxFollowers?: number;
+    ignorePrivate?: boolean;
+    liveSearch?: boolean;
+  }) =>
+    request<import("../types").ImportBatch>("/import-batches/start", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  refreshImportBatch: (id: string) =>
+    request<import("../types").ImportBatch>(`/import-batches/${id}/refresh`, {
+      method: "POST",
+    }),
+
+  // Downloads & Exports
+  downloadLeadsCsv: async () => {
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(`${API_BASE}/export/csv`, { headers: authHeaders });
+    if (!res.ok) throw new ApiError("Erro ao exportar CSV", res.status);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "crm_prospeccao_leads.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  downloadBackupJson: async () => {
+    const authHeaders = await getAuthHeaders();
+    const res = await fetch(`${API_BASE}/export/json`, { headers: authHeaders });
+    if (!res.ok) throw new ApiError("Erro ao exportar JSON", res.status);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "crm_prospeccao_backup.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
   seedDatabase: () =>
     request<{ success: boolean; leadsCount: number }>("/db/seed", {
       method: "POST",

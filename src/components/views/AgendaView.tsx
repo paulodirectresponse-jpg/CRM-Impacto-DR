@@ -30,6 +30,7 @@ import {
 import { useCrm } from "../../context/CrmContext";
 import { api } from "../../services/api";
 import { MonthlyProspectingPlan, Lead, Audience } from "../../types";
+import { getSaoPauloDateString } from "../../utils/dateUtils";
 
 const WEEKDAYS = [
   { key: 1, label: "Segunda", short: "Seg" },
@@ -44,9 +45,8 @@ const WEEKDAYS = [
 export const AgendaView: React.FC = () => {
   const { leads, audiences, settings, openLeadDetails, addToast, refreshAll } = useCrm();
 
-  // Selected Year-Month (e.g. 2026-09)
-  const today = new Date();
-  const todayIso = today.toISOString().substring(0, 10);
+  // Selected Year-Month (e.g. 2026-09) in America/Sao_Paulo
+  const todayIso = getSaoPauloDateString(new Date());
   const currentMonthStr = todayIso.substring(0, 7);
 
   const [currentYearMonth, setCurrentYearMonth] = useState<string>(currentMonthStr);
@@ -245,15 +245,19 @@ export const AgendaView: React.FC = () => {
   const calculatedDailyTarget =
     activeDaysCount > 0 ? Math.ceil(targetMonthlyLeads / activeDaysCount) : 0;
 
-  // Real prospecting metrics from leads
+  // Real prospecting metrics from leads (strictly active prospecting leads with real first contact)
   const leadsByDate = useMemo(() => {
     const map: Record<string, Lead[]> = {};
     leads.forEach((l) => {
-      const contactDate =
-        l.stageDates?.contactedAt?.substring(0, 10) || l.createdAt?.substring(0, 10);
-      if (contactDate) {
-        if (!map[contactDate]) map[contactDate] = [];
-        map[contactDate].push(l);
+      if (!l.isArchived && l.source === "active") {
+        const contactIso = l.stageDates?.contactedAt || (l.status !== "novo" && l.status !== "analisado" ? l.createdAt : null);
+        if (contactIso) {
+          const contactDate = getSaoPauloDateString(contactIso);
+          if (contactDate) {
+            if (!map[contactDate]) map[contactDate] = [];
+            map[contactDate].push(l);
+          }
+        }
       }
     });
     return map;

@@ -23,12 +23,16 @@ import {
   Layers,
   TrendingUp,
   DollarSign,
+  RotateCcw,
+  Inbox,
 } from "lucide-react";
 import { useCrm } from "../../context/CrmContext";
-import { AcceptanceTestResult, DailyGoal, LossReason } from "../../types";
+import { AcceptanceTestResult, DailyGoal, LossReason, TrashItems, Lead, Script, Audience, ImportConfig } from "../../types";
 import { api } from "../../services/api";
+import { formatSaoPauloDateTime } from "../../utils/dateUtils";
+import { ConfirmDeleteModal } from "../common/ConfirmDeleteModal";
 
-type SettingsTab = "goals" | "paid_traffic" | "ai" | "loss_reasons" | "data_tests";
+type SettingsTab = "ai" | "paid_traffic" | "loss_reasons" | "team" | "data_tests" | "trash";
 
 export const SettingsView: React.FC = () => {
   const {
@@ -39,14 +43,7 @@ export const SettingsView: React.FC = () => {
     addToast,
   } = useCrm();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("goals");
-
-  // Active Goals
-  const [dailyTarget, setDailyTarget] = useState<number>(settings?.defaultDailyTarget ?? 0);
-  const [audienceTargets, setAudienceTargets] = useState<{ [id: string]: number }>(
-    settings?.audienceTargets || {}
-  );
-  const [isSavingGoals, setIsSavingGoals] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
 
   // Paid Traffic Settings
   const [adSpendTotal, setAdSpendTotal] = useState<number>(settings?.adSpendTotal ?? 0);
@@ -70,11 +67,190 @@ export const SettingsView: React.FC = () => {
     settings?.authorizedEmails || ["ferramentas.1@gmail.com", "ferramentaas.1@gmail.com", "paulo.direct.response@gmail.com"]
   );
 
+  // Trash & Deleted Items (V2.1.1)
+  const [trashData, setTrashData] = useState<TrashItems>({
+    leads: [],
+    scripts: [],
+    audiences: [],
+    importConfigs: [],
+    configs: [],
+  });
+  const [isLoadingTrash, setIsLoadingTrash] = useState(false);
+  const [trashSubTab, setTrashSubTab] = useState<"leads" | "scripts" | "audiences" | "configs">("leads");
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  // Modal states for permanent deletion & empty trash
+  const [showEmptyTrashModal, setShowEmptyTrashModal] = useState(false);
+  const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
+  const [permanentDeleteTarget, setPermanentDeleteTarget] = useState<{
+    type: "lead" | "script" | "audience" | "config" | "loss_reason";
+    id: string;
+    name: string;
+  } | null>(null);
+  const [isPermanentlyDeleting, setIsPermanentlyDeleting] = useState(false);
+
+  // Dynamic Firebase Health
+  const [healthData, setHealthData] = useState<{
+    status: string;
+    database: {
+      provider: string;
+      reachable: boolean;
+      status: string;
+      projectId: string;
+      databaseId: string;
+      credentialMode: string;
+    };
+    auth: string;
+  } | null>(null);
+
+  const loadHealth = async () => {
+    try {
+      const h = await api.getHealth();
+      setHealthData(h);
+    } catch {
+      // ignore
+    }
+  };
+
+  React.useEffect(() => {
+    loadHealth();
+  }, []);
+
+  const loadTrash = async () => {
+    setIsLoadingTrash(true);
+    try {
+      const data = await api.getTrashItems();
+      const cfgList = data.importConfigs || data.configs || [];
+      const sanitized: TrashItems = {
+        leads: data.leads || [],
+        scripts: data.scripts || [],
+        audiences: data.audiences || [],
+        importConfigs: cfgList,
+        configs: cfgList,
+      };
+      setTrashData(sanitized);
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao carregar lixeira", message: err.message });
+    } finally {
+      setIsLoadingTrash(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeTab === "trash") {
+      loadTrash();
+    }
+  }, [activeTab]);
+
+  const handleRestoreLead = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await api.restoreLead(id);
+      addToast({ type: "success", title: "Lead Restaurado com Sucesso" });
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao restaurar lead", message: err.message });
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handleRestoreScript = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await api.restoreScript(id);
+      addToast({ type: "success", title: "Script Restaurado com Sucesso" });
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao restaurar script", message: err.message });
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handleRestoreAudience = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await api.restoreAudience(id);
+      addToast({ type: "success", title: "Público Restaurado com Sucesso" });
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao restaurar público", message: err.message });
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handleRestoreConfig = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await api.restoreImportConfig(id);
+      addToast({ type: "success", title: "Modelo de Importação Restaurado com Sucesso" });
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao restaurar modelo", message: err.message });
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handleConfirmEmptyTrash = async () => {
+    setIsEmptyingTrash(true);
+    try {
+      const res = await api.emptyTrash();
+      addToast({
+        type: "success",
+        title: "Lixeira Esvaziada",
+        message: res.message || "Todos os itens foram excluídos definitivamente.",
+      });
+      setShowEmptyTrashModal(false);
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao esvaziar lixeira", message: err.message });
+    } finally {
+      setIsEmptyingTrash(false);
+    }
+  };
+
+  const handleConfirmPermanentDelete = async () => {
+    if (!permanentDeleteTarget) return;
+    setIsPermanentlyDeleting(true);
+    try {
+      const { type, id, name } = permanentDeleteTarget;
+      if (type === "lead") {
+        await api.permanentlyDeleteLead(id);
+        addToast({ type: "success", title: "Lead excluído definitivamente" });
+      } else if (type === "script") {
+        await api.permanentlyDeleteScript(id);
+        addToast({ type: "success", title: "Script excluído definitivamente" });
+      } else if (type === "audience") {
+        await api.permanentlyDeleteAudience(id);
+        addToast({ type: "success", title: "Público excluído definitivamente" });
+      } else if (type === "config") {
+        await api.permanentlyDeleteImportConfig(id);
+        addToast({ type: "success", title: "Modelo excluído definitivamente" });
+      } else if (type === "loss_reason") {
+        await api.deleteLossReason(id);
+        addToast({ type: "success", title: "Motivo de perda excluído com sucesso" });
+      }
+      setPermanentDeleteTarget(null);
+      await loadTrash();
+      await refreshAll();
+    } catch (err: any) {
+      addToast({ type: "error", title: "Erro ao excluir item definitivamente", message: err.message });
+    } finally {
+      setIsPermanentlyDeleting(false);
+    }
+  };
+
   // Synchronize state when settings are loaded/refreshed
   React.useEffect(() => {
     if (settings) {
-      setDailyTarget(settings.defaultDailyTarget ?? 0);
-      setAudienceTargets(settings.audienceTargets || {});
       setAdSpendTotal(settings.adSpendTotal ?? 0);
       setAvgTicket(settings.averageContractValue ?? 0);
       setAiEnabled(settings.aiEnabled ?? true);
@@ -95,27 +271,6 @@ export const SettingsView: React.FC = () => {
     failed: number;
   } | null>(null);
   const [expandedTestId, setExpandedTestId] = useState<number | null>(null);
-
-  const handleSaveGoals = async () => {
-    setIsSavingGoals(true);
-    try {
-      await api.updateSettings({
-        defaultDailyTarget: dailyTarget,
-        audienceTargets,
-      });
-      await api.setGoal({
-        date: new Date().toISOString().split("T")[0],
-        targetTotal: dailyTarget,
-        targetByAudience: audienceTargets,
-      });
-      addToast({ type: "success", title: "Metas diárias atualizadas com sucesso!" });
-      await refreshAll();
-    } catch (err: any) {
-      addToast({ type: "error", title: "Erro ao salvar metas", message: err.message });
-    } finally {
-      setIsSavingGoals(false);
-    }
-  };
 
   const handleSavePaidTrafficSettings = async () => {
     setIsSavingPaid(true);
@@ -204,28 +359,35 @@ export const SettingsView: React.FC = () => {
   const handleRunAcceptanceTests = async () => {
     setIsRunningTests(true);
     try {
-      const res = await api.runAcceptanceTests();
-      setTestResults(res.results);
+      const res: any = await api.runAcceptanceTests();
+      const list = Array.isArray(res) ? res : Array.isArray(res?.results) ? res.results : [];
+      const total = typeof res?.total === "number" ? res.total : list.length;
+      const passed = typeof res?.passed === "number" ? res.passed : list.filter((r: any) => r.status === "passed").length;
+      const failed = typeof res?.failed === "number" ? res.failed : list.filter((r: any) => r.status === "failed").length;
+      const allPassed = typeof res?.allPassed === "boolean" ? res.allPassed : failed === 0;
+
+      setTestResults(list);
       setTestSummary({
-        total: res.total,
-        passed: res.passed,
-        failed: res.failed,
+        total,
+        passed,
+        failed,
       });
 
-      if (res.allPassed) {
+      if (allPassed) {
         addToast({
           type: "success",
           title: "Validação dos 50 Testes Concluída",
-          message: `Todos os ${res.total} testes de aceitação passaram com 100% de sucesso!`,
+          message: `Todos os ${total} testes de aceitação passaram com 100% de sucesso!`,
         });
       } else {
         addToast({
           type: "error",
           title: "Falha em Teste de Aceitação",
-          message: `${res.failed} teste(s) falharam. Verifique os logs abaixo.`,
+          message: `${failed} teste(s) falharam. Verifique os logs abaixo.`,
         });
       }
     } catch (err: any) {
+      setTestResults([]);
       addToast({ type: "error", title: "Erro ao executar suíte de testes", message: err.message });
     } finally {
       setIsRunningTests(false);
@@ -257,11 +419,18 @@ export const SettingsView: React.FC = () => {
     }
   };
 
+  const totalTrashCount =
+    (trashData.leads?.length || 0) +
+    (trashData.scripts?.length || 0) +
+    (trashData.audiences?.length || 0) +
+    (trashData.importConfigs?.length || trashData.configs?.length || 0);
+
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; badge?: string }[] = [
-    { id: "goals", label: "Metas & Equipe", icon: <Target className="w-4 h-4" /> },
-    { id: "paid_traffic", label: "Tráfego Pago & ROI", icon: <TrendingUp className="w-4 h-4" /> },
     { id: "ai", label: "Inteligência Artificial (OpenAI)", icon: <Sparkles className="w-4 h-4" />, badge: aiEnabled ? "Ativa" : "Off" },
-    { id: "loss_reasons", label: "Motivos de Perda", icon: <Archive className="w-4 h-4" />, badge: `${lossReasons.filter(r => r.isActive).length}` },
+    { id: "paid_traffic", label: "Tráfego Pago & ROI", icon: <TrendingUp className="w-4 h-4" /> },
+    { id: "loss_reasons", label: "Motivos de Perda", icon: <Archive className="w-4 h-4" />, badge: `${(lossReasons || []).filter(r => r.isActive).length}` },
+    { id: "team", label: "Equipe & Acessos", icon: <ShieldCheck className="w-4 h-4" />, badge: `${(authorizedEmails || []).length}` },
+    { id: "trash", label: "Lixeira", icon: <Trash2 className="w-4 h-4" />, badge: totalTrashCount > 0 ? `${totalTrashCount}` : undefined },
     { id: "data_tests", label: "Dados, Backup & Testes", icon: <Database className="w-4 h-4" /> },
   ];
 
@@ -272,7 +441,7 @@ export const SettingsView: React.FC = () => {
         <div>
           <h2 className="text-lg font-bold text-slate-900 leading-tight">Configurações & Governança</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Gerencie metas diárias, modelo OpenAI, motivos de descarte e segurança operacional
+            Gerencie modelo OpenAI, parâmetros de tráfego, motivos de descarte, segurança operacional e equipe
           </p>
         </div>
       </div>
@@ -309,79 +478,9 @@ export const SettingsView: React.FC = () => {
         })}
       </div>
 
-      {/* TAB 1: Goals & Team */}
-      {activeTab === "goals" && (
+      {/* TAB: Team & Access */}
+      {activeTab === "team" && (
         <div className="space-y-6 animate-in fade-in">
-          {/* Daily Targets */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-              <Target className="w-5 h-5 text-indigo-600" />
-              <div>
-                <h3 className="font-bold text-sm text-slate-900">Metas Diárias de Prospecção Ativa</h3>
-                <p className="text-xs text-slate-500">
-                  Contagem diária baseada no primeiro contato no fuso America/Sao_Paulo (leads pagos não somam)
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 mb-1">
-                  Meta Diária Geral (Novos Contatos Ativos / Dia)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={dailyTarget}
-                  onChange={(e) => setDailyTarget(parseInt(e.target.value) || 30)}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-indigo-500 outline-hidden"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Recomendado para rotina de SDR: 20 a 50 contatos/dia.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block font-semibold text-slate-700">Metas por Público / Nicho (Opcional)</label>
-                {audiences.filter((a) => a.isActive).length === 0 ? (
-                  <p className="text-[11px] text-slate-400 italic bg-slate-50 p-2.5 rounded-lg">
-                    Nenhum público ativo cadastrado no momento.
-                  </p>
-                ) : (
-                  audiences
-                    .filter((a) => a.isActive)
-                    .map((aud) => (
-                      <div key={aud.id} className="flex items-center justify-between gap-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                        <span className="text-slate-700 font-medium truncate">{aud.name}:</span>
-                        <input
-                          type="number"
-                          placeholder="Meta"
-                          value={audienceTargets[aud.id] || ""}
-                          onChange={(e) =>
-                            setAudienceTargets({
-                              ...audienceTargets,
-                              [aud.id]: parseInt(e.target.value) || 0,
-                            })
-                          }
-                          className="w-20 border border-slate-300 bg-white rounded px-2 py-1 text-xs text-right outline-hidden focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-100">
-              <button
-                onClick={handleSaveGoals}
-                disabled={isSavingGoals}
-                className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-              >
-                {isSavingGoals ? "Salvando..." : "Salvar Metas"}
-              </button>
-            </div>
-          </div>
-
           {/* Authorized Team Emails */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
@@ -395,13 +494,13 @@ export const SettingsView: React.FC = () => {
             </div>
 
             <div className="space-y-2">
-              {authorizedEmails.map((em) => (
+              {(authorizedEmails || []).map((em) => (
                 <div
                   key={em}
                   className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs"
                 >
                   <span className="font-medium text-slate-800 font-mono">{em}</span>
-                  {authorizedEmails.length > 1 && (
+                  {(authorizedEmails || []).length > 1 && (
                     <button
                       onClick={() => handleRemoveEmail(em)}
                       className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
@@ -611,7 +710,7 @@ export const SettingsView: React.FC = () => {
 
           {/* Existing reasons list */}
           <div className="space-y-2 max-h-60 overflow-y-auto">
-            {lossReasons.map((lr) => (
+            {(lossReasons || []).map((lr) => (
               <div
                 key={lr.id}
                 className="flex items-center justify-between p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs"
@@ -629,15 +728,32 @@ export const SettingsView: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {lr.isActive && !lr.isOther && (
-                  <button
-                    onClick={() => handleArchiveReason(lr.id)}
-                    className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
-                    title="Desativar motivo"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
+                <div className="flex items-center gap-1">
+                  {lr.isActive && !lr.isOther && (
+                    <button
+                      onClick={() => handleArchiveReason(lr.id)}
+                      className="text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-200 px-2 py-1 rounded transition-colors cursor-pointer"
+                      title="Desativar motivo"
+                    >
+                      Desativar
+                    </button>
+                  )}
+                  {!lr.isOther && (
+                    <button
+                      onClick={() =>
+                        setPermanentDeleteTarget({
+                          type: "loss_reason",
+                          id: lr.id,
+                          name: lr.name,
+                        })
+                      }
+                      className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer transition-colors"
+                      title="Excluir motivo definitivamente"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -668,6 +784,343 @@ export const SettingsView: React.FC = () => {
         </div>
       )}
 
+      {/* TAB 5: Lixeira (Soft Deleted Items - V2.1.1) */}
+      {activeTab === "trash" && (
+        <div className="space-y-6 animate-in fade-in">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-bold">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900">Lixeira do Sistema (Soft Delete)</h3>
+                  <p className="text-xs text-slate-500">
+                    Itens excluídos permanecem salvos e podem ser restaurados ou excluídos permanentemente
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {((trashData.leads?.length || 0) +
+                  (trashData.scripts?.length || 0) +
+                  (trashData.audiences?.length || 0) +
+                  (trashData.importConfigs?.length || trashData.configs?.length || 0) > 0) && (
+                  <button
+                    type="button"
+                    onClick={() => setShowEmptyTrashModal(true)}
+                    className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Esvaziar Lixeira</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={loadTrash}
+                  disabled={isLoadingTrash}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingTrash ? "animate-spin" : ""}`} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-tabs for Trash Entities */}
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-2 overflow-x-auto">
+              {[
+                { id: "leads", label: "Leads", count: trashData.leads?.length || 0 },
+                { id: "scripts", label: "Scripts", count: trashData.scripts?.length || 0 },
+                { id: "audiences", label: "Públicos-Alvo", count: trashData.audiences?.length || 0 },
+                { id: "configs", label: "Modelos de Importação", count: trashData.importConfigs?.length || trashData.configs?.length || 0 },
+              ].map((sub) => (
+                <button
+                  key={sub.id}
+                  onClick={() => setTrashSubTab(sub.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    trashSubTab === sub.id
+                      ? "bg-indigo-50 text-indigo-700 font-bold border border-indigo-200"
+                      : "text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  <span>{sub.label}</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      trashSubTab === sub.id ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-700"
+                    }`}
+                  >
+                    {sub.count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Content per sub-tab */}
+            {isLoadingTrash ? (
+              <div className="py-12 flex items-center justify-center text-xs text-slate-500 gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-indigo-600" />
+                <span>Carregando itens da lixeira...</span>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Leads Trash */}
+                {trashSubTab === "leads" && (
+                  <div>
+                    {(trashData.leads?.length || 0) === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                        <Inbox className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                        <span>Nenhum lead na lixeira.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {(trashData.leads || []).map((lead) => {
+                          const leadLabel = lead.instagramUsernameNormalized
+                            ? `@${lead.instagramUsernameNormalized}`
+                            : lead.temporaryLabel || lead.id;
+                          return (
+                            <div
+                              key={lead.id}
+                              className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-900">{leadLabel}</span>
+                                  <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-semibold uppercase">
+                                    {lead.status}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  Excluído em: {lead.deletedAt ? formatSaoPauloDateTime(lead.deletedAt) : "Data não registrada"}
+                                  {lead.deletedBy ? ` por ${lead.deletedBy}` : ""}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreLead(lead.id)}
+                                  disabled={restoringId === lead.id}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <RotateCcw className={`w-3.5 h-3.5 ${restoringId === lead.id ? "animate-spin" : ""}`} />
+                                  <span>{restoringId === lead.id ? "Restaurando..." : "Restaurar"}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPermanentDeleteTarget({
+                                      type: "lead",
+                                      id: lead.id,
+                                      name: leadLabel,
+                                    })
+                                  }
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Excluir definitivamente"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Excluir</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Scripts Trash */}
+                {trashSubTab === "scripts" && (
+                  <div>
+                    {(trashData.scripts?.length || 0) === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                        <Inbox className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                        <span>Nenhum script na lixeira.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {(trashData.scripts || []).map((scr) => (
+                          <div
+                            key={scr.id}
+                            className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="space-y-0.5 max-w-md">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-900">{scr.baseName}</span>
+                                <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded font-mono">
+                                  v{scr.version}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 truncate">{scr.content}</p>
+                              <div className="text-[10px] text-slate-400">
+                                Excluído em: {scr.deletedAt ? formatSaoPauloDateTime(scr.deletedAt) : "Data não registrada"}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreScript(scr.id)}
+                                disabled={restoringId === scr.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${restoringId === scr.id ? "animate-spin" : ""}`} />
+                                <span>{restoringId === scr.id ? "Restaurando..." : "Restaurar"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPermanentDeleteTarget({
+                                    type: "script",
+                                    id: scr.id,
+                                    name: `Script "${scr.baseName}" (v${scr.version})`,
+                                  })
+                                }
+                                className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Excluir definitivamente"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Excluir</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Audiences Trash */}
+                {trashSubTab === "audiences" && (
+                  <div>
+                    {(trashData.audiences?.length || 0) === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                        <Inbox className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                        <span>Nenhum público-alvo na lixeira.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {(trashData.audiences || []).map((aud) => (
+                          <div
+                            key={aud.id}
+                            className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="space-y-0.5">
+                              <span className="font-bold text-slate-900">{aud.name}</span>
+                              {aud.description && <p className="text-[11px] text-slate-500">{aud.description}</p>}
+                              <div className="text-[10px] text-slate-400">
+                                Excluído em: {aud.deletedAt ? formatSaoPauloDateTime(aud.deletedAt) : "Data não registrada"}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleRestoreAudience(aud.id)}
+                                disabled={restoringId === aud.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RotateCcw className={`w-3.5 h-3.5 ${restoringId === aud.id ? "animate-spin" : ""}`} />
+                                <span>{restoringId === aud.id ? "Restaurando..." : "Restaurar"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setPermanentDeleteTarget({
+                                    type: "audience",
+                                    id: aud.id,
+                                    name: `Público "${aud.name}"`,
+                                  })
+                                }
+                                className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Excluir definitivamente"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Excluir</span>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Import Configs Trash */}
+                {trashSubTab === "configs" && (
+                  <div>
+                    {(trashData.importConfigs?.length || 0) === 0 ? (
+                      <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-400">
+                        <Inbox className="w-6 h-6 mx-auto mb-1 text-slate-300" />
+                        <span>Nenhum modelo de importação na lixeira.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {(trashData.importConfigs || []).map((cfg) => {
+                          const kws = cfg.keywords || [];
+                          return (
+                            <div
+                              key={cfg.id}
+                              className="bg-slate-50 p-3 rounded-xl border border-slate-200 flex items-center justify-between gap-3 text-xs"
+                            >
+                              <div className="space-y-0.5">
+                                <span className="font-bold text-slate-900">{cfg.name}</span>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {kws.slice(0, 4).map((kw, i) => (
+                                    <span key={i} className="bg-slate-200 text-slate-700 text-[10px] px-1.5 py-0.5 rounded">
+                                      {kw}
+                                    </span>
+                                  ))}
+                                  {kws.length > 4 && (
+                                    <span className="text-[10px] text-slate-400">+{kws.length - 4}</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  Excluído em: {cfg.deletedAt ? formatSaoPauloDateTime(cfg.deletedAt) : "Data não registrada"}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreConfig(cfg.id)}
+                                  disabled={restoringId === cfg.id}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <RotateCcw className={`w-3.5 h-3.5 ${restoringId === cfg.id ? "animate-spin" : ""}`} />
+                                  <span>{restoringId === cfg.id ? "Restaurando..." : "Restaurar"}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setPermanentDeleteTarget({
+                                      type: "config",
+                                      id: cfg.id,
+                                      name: `Modelo "${cfg.name}"`,
+                                    })
+                                  }
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                                  title="Excluir definitivamente"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>Excluir</span>
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TAB 4: Data, Backup & Acceptance Tests */}
       {activeTab === "data_tests" && (
         <div className="space-y-6 animate-in fade-in">
@@ -686,9 +1139,13 @@ export const SettingsView: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Status Firestore</span>
-                <div className="flex items-center gap-1.5 font-bold text-emerald-600">
+                <div className={`flex items-center gap-1.5 font-bold ${healthData?.database.reachable ? "text-emerald-600" : "text-amber-600"}`}>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Conectado (us-east1)</span>
+                  <span>
+                    {healthData?.database.reachable
+                      ? `Conectado (${healthData.database.databaseId || "(default)"})`
+                      : "Verificando..."}
+                  </span>
                 </div>
               </div>
 
@@ -696,14 +1153,14 @@ export const SettingsView: React.FC = () => {
                 <span className="text-[10px] uppercase font-bold text-slate-400">Firebase Auth</span>
                 <div className="flex items-center gap-1.5 font-bold text-indigo-600">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Google Sign-In Ativo</span>
+                  <span>{healthData?.auth ? "Google Sign-In Ativo" : "Google Sign-In Ativo"}</span>
                 </div>
               </div>
 
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
                 <span className="text-[10px] uppercase font-bold text-slate-400">Projeto Google Cloud</span>
                 <div className="font-mono text-[11px] font-semibold text-slate-800 truncate">
-                  gen-lang-client-0030668744
+                  {healthData?.database.projectId || "firebase-configured"}
                 </div>
               </div>
             </div>
@@ -791,9 +1248,9 @@ export const SettingsView: React.FC = () => {
             </div>
 
             {/* Results List */}
-            {testResults.length > 0 && (
+            {(testResults || []).length > 0 && (
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                {testResults.map((t) => {
+                {(testResults || []).map((t) => {
                   const isExpanded = expandedTestId === t.id;
                   const isPassed = t.status === "passed";
 
@@ -860,6 +1317,59 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Modal to Confirm Emptying Trash */}
+      <ConfirmDeleteModal
+        isOpen={showEmptyTrashModal}
+        title="Esvaziar Toda a Lixeira?"
+        description={
+          <div>
+            <p>
+              Esta ação excluirá definitivamente todos os leads, scripts, públicos-alvo e modelos de importação presentes na lixeira.
+            </p>
+            <p className="mt-1 font-semibold text-slate-800">
+              Total de itens: {(trashData.leads?.length || 0) +
+                (trashData.scripts?.length || 0) +
+                (trashData.audiences?.length || 0) +
+                (trashData.importConfigs?.length || trashData.configs?.length || 0)}
+            </p>
+          </div>
+        }
+        confirmText="Esvaziar Definitivamente"
+        isPermanent={true}
+        isLoading={isEmptyingTrash}
+        onConfirm={handleConfirmEmptyTrash}
+        onClose={() => setShowEmptyTrashModal(false)}
+      />
+
+      {/* Modal to Confirm Permanent Item Deletion */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(permanentDeleteTarget)}
+        title={
+          permanentDeleteTarget?.type === "loss_reason"
+            ? "Excluir Motivo de Perda?"
+            : "Excluir Definitivamente?"
+        }
+        description={
+          <div>
+            <p>
+              {permanentDeleteTarget?.type === "loss_reason"
+                ? "Tem certeza de que deseja remover este motivo de perda?"
+                : "Este item será removido permanentemente do banco de dados e não poderá mais ser restaurado."}
+            </p>
+            {permanentDeleteTarget?.name && (
+              <p className="mt-1 font-semibold text-slate-800">
+                Item: {permanentDeleteTarget.name}
+              </p>
+            )}
+          </div>
+        }
+        confirmText="Excluir Definitivamente"
+        isPermanent={true}
+        isLoading={isPermanentlyDeleting}
+        onConfirm={handleConfirmPermanentDelete}
+        onClose={() => setPermanentDeleteTarget(null)}
+      />
     </div>
   );
 };

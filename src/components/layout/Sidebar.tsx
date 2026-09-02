@@ -10,6 +10,7 @@ import {
   Sparkles,
   Settings,
   Flame,
+  Instagram,
 } from "lucide-react";
 import { NavTab, useCrm } from "../../context/CrmContext";
 
@@ -32,6 +33,7 @@ export const Sidebar: React.FC = () => {
     { id: "leads", label: "Leads", icon: Users, badge: activeLeadsCount },
     { id: "pipeline", label: "Pipeline", icon: Kanban },
     { id: "agenda", label: "Agenda & Metas", icon: CalendarDays },
+    { id: "apify_import", label: "Importador Apify", icon: Instagram },
     { id: "paid_traffic", label: "Tráfego Pago", icon: Megaphone, badge: paidLeadsCount > 0 ? paidLeadsCount : undefined },
     { id: "audiences", label: "Públicos", icon: Target },
     { id: "scripts", label: "Scripts", icon: FileText },
